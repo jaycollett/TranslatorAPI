@@ -2,6 +2,7 @@ import requests
 import time
 import uuid
 import logging
+import json  # For pretty-printing the raw JSON
 
 # Configure logging with emojis
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -40,9 +41,11 @@ def check_translation_status(sermon_guid):
         response = requests.get(f"{API_URL}/status/{sermon_guid}", headers=HEADERS)
         if response.status_code == 200:
             data = response.json()
+            # Output the raw JSON response
+            logging.info(f"Raw JSON response:\n{json.dumps(data, indent=2)}")
             logging.info(f"📊 Status: {data['status']}")
             if data['status'] == 'completed':
-                logging.info(f"🎉 Translation completed!")
+                logging.info("🎉 Translation completed!")
                 logging.info(f"Translated text:\n{data['translated_text']}")
                 # Output the translated sermon title as well
                 sermon_title_translated = data.get("sermon_title")
@@ -55,7 +58,11 @@ def check_translation_status(sermon_guid):
                 logging.error("❌ Translation failed!")
                 break
         else:
-            logging.error(f"❌ Failed to fetch status: {response.json()}")
+            try:
+                error_data = response.json()
+            except Exception:
+                error_data = response.text
+            logging.error(f"❌ Failed to fetch status: {error_data}")
             break
 
 def main():

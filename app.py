@@ -131,7 +131,7 @@ def index():
 
 @app.route('/status/<sermon_guid>', methods=['GET'])
 def get_translation_status(sermon_guid):
-    """Fetches the status of a translation job by sermon GUID."""
+    """Fetches the status of a translation job by sermon GUID, returning only the translated fields and timestamps."""
     try:
         db = get_db()
         cursor = db.cursor()
@@ -144,11 +144,24 @@ def get_translation_status(sermon_guid):
 
         translation_data = dict(row)
         logging.info(f"📊 Translation status retrieved for Sermon GUID: {sermon_guid}")
-        return jsonify(translation_data), 200
+
+        # Only return the desired fields: sermon_guid, translated_sermon_title, translated_text, created, and finished_at.
+        response_data = {
+            "sermon_guid": translation_data.get("sermon_guid"),
+            "translated_sermon_title": translation_data.get("translated_sermon_title"),
+            "translated_text": translation_data.get("translated_text"),
+            "status": translation_data.get("status"),
+            "created": translation_data.get("created"),
+            "convert_to_language": translation_data.get("convert_to_language"),
+            "finished": translation_data.get("finished_at")
+        }
+
+        return jsonify(response_data), 200
 
     except Exception as e:
         logging.exception("❌ Error occurred while fetching translation status.")
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     logging.info("🔥 Starting Translation API Server...")
