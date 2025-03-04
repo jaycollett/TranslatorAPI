@@ -29,9 +29,7 @@ def translate_text(text, source_language, target_language, region):
         text,
         source_language=source_language,
         target_language=target_language,
-        model="nmt",  # Use Neural Machine Translation
-        format="text",  # Preserve text formatting
-        gl=region  # Regional language preference
+        model="nmt"
     )
     
     return result.get("translatedText", "")
