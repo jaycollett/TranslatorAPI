@@ -119,6 +119,11 @@ def purge_jobs():
         logging.exception("❌ Error occurred while purging jobs.")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/')
+def index():
+    """Default route serving a blank page."""
+    return "", 200
+
 @app.route('/status/<sermon_guid>', methods=['GET'])
 def get_translation_status(sermon_guid):
     """Fetches the status of a translation job by sermon GUID."""
