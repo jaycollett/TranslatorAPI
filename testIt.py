@@ -53,7 +53,7 @@ def check_translation_status(sermon_guid):
 def main():
     """Main function to test the translation API."""
     sermon_guid = generate_guid()
-    test_text = """This is a test passage with approximately 500 words. It contains a variety of sentence structures"""
+    test_text = """Blessed are the poor in spirit, for theirs is the kingdom of heaven. Blessed are those who mourn, for they shall be comforted. Blessed are the meek, for they shall inherit the earth. Blessed are those who hunger and thirst for righteousness, for they shall be satisfied. Blessed are the merciful, for they shall receive mercy. Blessed are the pure in heart, for they shall see God. Blessed are the peacemakers, for they shall be called sons of God. Blessed are those who are persecuted for righteousness’ sake, for theirs is the kingdom of heaven. Blessed are you when others revile you and persecute you and utter all kinds of evil against you falsely on my account. Rejoice and be glad, for your reward is great in heaven, for so they persecuted the prophets who were before you."""
     
     logging.info("🚀 Starting translation API test...")
     submit_translation_job(sermon_guid, test_text)
