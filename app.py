@@ -22,6 +22,7 @@ def get_db():
         db.row_factory = sqlite3.Row
     return db
 
+# added sermon_title
 def init_db():
     """Initializes the database with necessary tables."""
     with app.app_context():
@@ -31,11 +32,13 @@ def init_db():
             CREATE TABLE IF NOT EXISTS translations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sermon_guid TEXT NOT NULL UNIQUE,
+                sermon_title TEXT NOT NULL,
                 transcription TEXT NOT NULL,
                 current_language TEXT NOT NULL,
                 convert_to_language TEXT NOT NULL,
                 region TEXT NOT NULL,
                 translated_text TEXT DEFAULT NULL,
+                translated_sermon_title TEXT DEFAULT NULL,
                 status TEXT DEFAULT 'pending',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 finished_at TIMESTAMP DEFAULT NULL
@@ -78,12 +81,14 @@ def request_translation():
     try:
         data = request.get_json()
         sermon_guid = data.get('sermon_guid')
+        sermon_title = data.get('sermon_title')  
         transcription = data.get('transcription')
         current_language = data.get('current_language')
         convert_to_language = data.get('convert_to_language')
         region = data.get('region')
 
-        if not all([sermon_guid, transcription, current_language, convert_to_language, region]):
+        # Check if all required fields are provided
+        if not all([sermon_guid, sermon_title, transcription, current_language, convert_to_language, region]):
             logging.error("⚠️ Missing required fields in request.")
             return jsonify({"error": "Missing required fields"}), 400
 
@@ -98,9 +103,9 @@ def request_translation():
             return jsonify({"error": "A translation request for this sermon already exists."}), 409
 
         cursor.execute('''
-            INSERT INTO translations (sermon_guid, transcription, current_language, convert_to_language, region, status)
-            VALUES (?, ?, ?, ?, ?, 'pending')
-        ''', (sermon_guid, transcription, current_language, convert_to_language, region))
+            INSERT INTO translations (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending')
+        ''', (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region))
         db.commit()
         logging.info(f"📥 Translation request submitted: {sermon_guid}")
         return jsonify({"message": "Translation request submitted successfully"}), 201
@@ -140,7 +145,7 @@ def get_translation_status(sermon_guid):
         translation_data = dict(row)
         logging.info(f"📊 Translation status retrieved for Sermon GUID: {sermon_guid}")
         return jsonify(translation_data), 200
-    
+
     except Exception as e:
         logging.exception("❌ Error occurred while fetching translation status.")
         return jsonify({"error": str(e)}), 500
