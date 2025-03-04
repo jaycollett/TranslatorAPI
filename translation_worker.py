@@ -75,8 +75,6 @@ def process_translation_jobs():
                     
                     # Log both translations so you can verify the output
                     logging.info(f"✅ Translation job {job_id} completed successfully.")
-                    logging.info(f"Translated transcription:\n{translated_text}")
-                    logging.info(f"Translated sermon title:\n{translated_sermon_title}")
                 except Exception as e:
                     logging.error(f"❌ Translation job {job_id} failed: {e}")
                     cursor.execute(
