@@ -153,8 +153,10 @@ def get_translation_status(sermon_guid):
 if __name__ == "__main__":
     logging.info("🔥 Starting Translation API Server...")
     init_db()
-    purge_old_completed_jobs()
-    
+
+    with app.app_context():  # 🔥 Ensure Flask app context
+        purge_old_completed_jobs()
+        
     logging.info("🔥 Starting translation worker thread...")
     worker_thread = threading.Thread(target=process_translation_jobs, daemon=True)
     worker_thread.start()
