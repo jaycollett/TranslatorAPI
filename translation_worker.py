@@ -4,7 +4,6 @@ import logging
 from google.cloud import translate_v2 as translate
 from datetime import datetime
 
-
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -42,9 +41,9 @@ def process_translation_jobs():
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # Fetch pending translation requests
+            # Fetch pending translation requests (now including sermon_title)
             cursor.execute(
-                "SELECT id, transcription, current_language, convert_to_language, region FROM translations WHERE status = 'pending' LIMIT 5"
+                "SELECT id, transcription, sermon_title, current_language, convert_to_language, region FROM translations WHERE status = 'pending' LIMIT 5"
             )
             jobs = cursor.fetchall()
 
@@ -53,7 +52,8 @@ def process_translation_jobs():
             
             for job in jobs:
                 job_id = job['id']
-                text = job['transcription']
+                transcription = job['transcription']
+                sermon_title = job['sermon_title']
                 source_language = job['current_language']
                 target_language = job['convert_to_language']
                 region = job['region'] if job['region'] else "US"  # Default to US if region is not set
@@ -61,13 +61,15 @@ def process_translation_jobs():
                 logging.info(f"🌍 Processing translation job {job_id}: {source_language} → {target_language} (Region: {region})...")
                 
                 try:
-                    translated_text = translate_text(text, source_language, target_language, region)
+                    # Translate both transcription and sermon title
+                    translated_text = translate_text(transcription, source_language, target_language, region)
+                    translated_sermon_title = translate_text(sermon_title, source_language, target_language, region)
                     finished_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
                     
-                    # Update database with translated text and completion time
+                    # Update database with both translated texts, status, and finished time
                     cursor.execute(
-                        "UPDATE translations SET translated_text = ?, status = 'completed', finished_at = ? WHERE id = ?",
-                        (translated_text, finished_at, job_id)
+                        "UPDATE translations SET translated_text = ?, translated_sermon_title = ?, status = 'completed', finished_at = ? WHERE id = ?",
+                        (translated_text, translated_sermon_title, finished_at, job_id)
                     )
                     conn.commit()
                     

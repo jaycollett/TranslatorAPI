@@ -1,63 +1,163 @@
-import requests
-import time
+from flask import Flask, request, jsonify, g
+import sqlite3
 import uuid
+import os
 import logging
+import threading
+from datetime import datetime, timedelta
+from translation_worker import process_translation_jobs
 
-# Configure logging with emojis
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def generate_guid():
-    """Generates a random GUID for the translation request."""
-    return str(uuid.uuid4())
+app = Flask(__name__)
+DATABASE = 'translations.db'
+API_KEY = os.getenv("TRANSLATION_API_KEY", "your_default_api_key")  # Use env variable for security
 
-# API Configuration
-API_URL = "https://translator.collett.us"
-API_KEY = "e95db18b-6bd6-411e-b95c-b3699b12cad3"  # Replace with your actual API key
-HEADERS = {"X-API-KEY": API_KEY, "Content-Type": "application/json"}
+def get_db():
+    """Connects to the database."""
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
 
-def submit_translation_job(sermon_guid, text, source_lang="en", target_lang="es", region="mx"):
-    """Submits a translation job to the API."""
-    payload = {
-        "sermon_guid": sermon_guid,
-        "transcription": text,
-        "current_language": source_lang,
-        "convert_to_language": target_lang,
-        "region": region
-    }
-    response = requests.post(f"{API_URL}/translate", json=payload, headers=HEADERS)
-    if response.status_code == 201:
-        logging.info(f"✅ Translation job submitted successfully! GUID: {sermon_guid}")
-    else:
-        logging.error(f"❌ Failed to submit translation job: {response.json()}")
-    return response
+def init_db():
+    """Initializes the database with necessary tables."""
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS translations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sermon_guid TEXT NOT NULL UNIQUE,
+                sermon_title TEXT NOT NULL,
+                transcription TEXT NOT NULL,
+                current_language TEXT NOT NULL,
+                convert_to_language TEXT NOT NULL,
+                region TEXT NOT NULL,
+                translated_text TEXT DEFAULT NULL,
+                translated_sermon_title TEXT DEFAULT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                finished_at TIMESTAMP DEFAULT NULL
+            )
+        ''')
+        db.commit()
+    logging.info("✅ Database initialized successfully.")
 
-def check_translation_status(sermon_guid):
-    """Checks the translation status until it's completed."""
-    while True:
-        time.sleep(10)
-        logging.info("⏳ Checking translation status...")
-        response = requests.get(f"{API_URL}/status/{sermon_guid}", headers=HEADERS)
-        if response.status_code == 200:
-            data = response.json()
-            logging.info(f"📊 Status: {data['status']}")
-            if data['status'] == 'completed':
-                logging.info(f"🎉 Translation completed! Translated text:\n{data['translated_text']}")
-                break
-            elif data['status'] == 'failed':
-                logging.error("❌ Translation failed!")
-                break
-        else:
-            logging.error(f"❌ Failed to fetch status: {response.json()}")
-            break
+def purge_old_completed_jobs():
+    """Deletes translation jobs that were completed more than 24 hours ago."""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        threshold_time = (datetime.utcnow() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute("DELETE FROM translations WHERE status = 'completed' AND finished_at <= ?", (threshold_time,))
+        db.commit()
+        logging.info("🗑️ Purged completed translation jobs older than 24 hours.")
+    except Exception as e:
+        logging.error(f"❌ Error while purging old completed jobs: {e}")
 
-def main():
-    """Main function to test the translation API."""
-    sermon_guid = generate_guid()
-    test_text = """Blessed are the poor in spirit, for theirs is the kingdom of heaven. Blessed are those who mourn, for they shall be comforted. Blessed are the meek, for they shall inherit the earth. Blessed are those who hunger and thirst for righteousness, for they shall be satisfied. Blessed are the merciful, for they shall receive mercy. Blessed are the pure in heart, for they shall see God. Blessed are the peacemakers, for they shall be called sons of God. Blessed are those who are persecuted for righteousness’ sake, for theirs is the kingdom of heaven. Blessed are you when others revile you and persecute you and utter all kinds of evil against you falsely on my account. Rejoice and be glad, for your reward is great in heaven, for so they persecuted the prophets who were before you."""
-    
-    logging.info("🚀 Starting translation API test...")
-    submit_translation_job(sermon_guid, test_text)
-    check_translation_status(sermon_guid)
+@app.before_request
+def require_api_key():
+    """Middleware to enforce API Key authentication."""
+    key = request.headers.get('X-API-KEY')
+    if key != API_KEY:
+        logging.warning("🚨 Unauthorized access attempt.")
+        return jsonify({"error": "Unauthorized"}), 401
+
+@app.teardown_appcontext
+def close_connection(exception):
+    """Closes database connection at the end of request."""
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+    logging.debug("🔌 Database connection closed.")
+
+@app.route('/translate', methods=['POST'])
+def request_translation():
+    """Endpoint to submit a translation request."""
+    try:
+        data = request.get_json()
+        sermon_guid = data.get('sermon_guid')
+        sermon_title = data.get('sermon_title')  # New field for English sermon title
+        transcription = data.get('transcription')
+        current_language = data.get('current_language')
+        convert_to_language = data.get('convert_to_language')
+        region = data.get('region')
+
+        # Check if all required fields are provided (including the new sermon_title)
+        if not all([sermon_guid, sermon_title, transcription, current_language, convert_to_language, region]):
+            logging.error("⚠️ Missing required fields in request.")
+            return jsonify({"error": "Missing required fields"}), 400
+
+        db = get_db()
+        cursor = db.cursor()
+
+        # Check if sermon GUID already exists
+        cursor.execute('SELECT id FROM translations WHERE sermon_guid = ?', (sermon_guid,))
+        existing = cursor.fetchone()
+        if existing:
+            logging.warning(f"🚫 Duplicate sermon GUID detected: {sermon_guid}")
+            return jsonify({"error": "A translation request for this sermon already exists."}), 409
+
+        cursor.execute('''
+            INSERT INTO translations (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending')
+        ''', (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region))
+        db.commit()
+        logging.info(f"📥 Translation request submitted: {sermon_guid}")
+        return jsonify({"message": "Translation request submitted successfully"}), 201
+
+    except Exception as e:
+        logging.exception("❌ Error occurred while processing translation request.")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/purge', methods=['POST'])
+def purge_jobs():
+    """Manually trigger purge of completed jobs older than 24 hours."""
+    try:
+        purge_old_completed_jobs()
+        return jsonify({"message": "Old completed jobs purged successfully."}), 200
+    except Exception as e:
+        logging.exception("❌ Error occurred while purging jobs.")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/')
+def index():
+    """Default route serving a blank page."""
+    return "", 200
+
+@app.route('/status/<sermon_guid>', methods=['GET'])
+def get_translation_status(sermon_guid):
+    """Fetches the status of a translation job by sermon GUID."""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM translations WHERE sermon_guid = ?", (sermon_guid,))
+        row = cursor.fetchone()
+
+        if row is None:
+            logging.warning(f"🔍 Translation status request: Sermon GUID not found - {sermon_guid}")
+            return jsonify({"error": "Translation job not found."}), 404
+
+        translation_data = dict(row)
+        logging.info(f"📊 Translation status retrieved for Sermon GUID: {sermon_guid}")
+        return jsonify(translation_data), 200
+
+    except Exception as e:
+        logging.exception("❌ Error occurred while fetching translation status.")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    main()
+    logging.info("🔥 Starting Translation API Server...")
+    init_db()
+    purge_old_completed_jobs()
+    
+    logging.info("🔥 Starting translation worker thread...")
+    worker_thread = threading.Thread(target=process_translation_jobs, daemon=True)
+    worker_thread.start()
+    logging.info("✅ Translation worker thread started successfully.")
+    
+    logging.info("✅ Translation API Server started successfully.")
+    app.run(host='0.0.0.0', port=5090, debug=True, use_reloader=False)
