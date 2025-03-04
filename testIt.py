@@ -11,7 +11,7 @@ def generate_guid():
     return str(uuid.uuid4())
 
 # API Configuration
-API_URL = "http://localhost:5090"
+API_URL = "https://translator.collett.us"
 API_KEY = "e95db18b-6bd6-411e-b95c-b3699b12cad3"  # Replace with your actual API key
 HEADERS = {"X-API-KEY": API_KEY, "Content-Type": "application/json"}
 
@@ -53,14 +53,7 @@ def check_translation_status(sermon_guid):
 def main():
     """Main function to test the translation API."""
     sermon_guid = generate_guid()
-    test_text = """This is a test passage with approximately 500 words. It contains a variety of sentence structures,
-        vocabulary, and complexity to ensure the translation service can handle different types of content.
-        The quick brown fox jumps over the lazy dog. We are testing how well the translation API converts
-        this English text into Spanish, specifically for the Mexican region. This is important for ensuring
-        accurate, culturally appropriate translations. Machine learning models have evolved significantly,
-        improving accuracy and fluency in translations. However, context and nuances remain a challenge.
-        The goal is to make this translation as natural and meaningful as possible. Let's see how it performs!
-    """
+    test_text = """This is a test passage with approximately 500 words. It contains a variety of sentence structures"""
     
     logging.info("🚀 Starting translation API test...")
     submit_translation_job(sermon_guid, test_text)

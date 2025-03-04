@@ -4,12 +4,13 @@ import logging
 from google.cloud import translate_v2 as translate
 from datetime import datetime
 
+
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Database and API settings
 DATABASE = 'translations.db'
-SERVICE_ACCOUNT_JSON = 'api_key.json'  # Path to Google API credentials
+SERVICE_ACCOUNT_JSON = '/etc/secrets/key.json'  # Path to Google API credentials
 TRANSLATION_POLL_INTERVAL = 10  # Seconds between checks
 
 def get_db_connection():
