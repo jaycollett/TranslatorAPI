@@ -4,7 +4,7 @@ import uuid
 import logging
 import json  # For pretty-printing the raw JSON
 
-# Configure logging with emojis
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def generate_guid():
@@ -28,41 +28,38 @@ def submit_translation_job(sermon_guid, text, sermon_title, source_lang="en", ta
     }
     response = requests.post(f"{API_URL}/translate", json=payload, headers=HEADERS)
     if response.status_code == 201:
-        logging.info(f"✅ Translation job submitted successfully! GUID: {sermon_guid}")
+        logging.info(f"Translation job submitted successfully. GUID: {sermon_guid}")
     else:
-        logging.error(f"❌ Failed to submit translation job: {response.json()}")
+        logging.error(f"Failed to submit translation job: {response.json()}")
     return response
 
 def check_translation_status(sermon_guid):
     """Checks the translation status until it's completed."""
     while True:
         time.sleep(10)
-        logging.info("⏳ Checking translation status...")
+        logging.info("Checking translation status...")
         response = requests.get(f"{API_URL}/status/{sermon_guid}", headers=HEADERS)
         if response.status_code == 200:
             data = response.json()
-            # Output the raw JSON response
-            logging.info(f"Raw JSON response:\n{json.dumps(data, indent=2)}")
-            logging.info(f"📊 Status: {data['status']}")
+            logging.info(f"Status: {data['status']}")
             if data['status'] == 'completed':
-                logging.info("🎉 Translation completed!")
+                logging.info("Translation completed.")
                 logging.info(f"Translated text:\n{data['translated_text']}")
-                # Output the translated sermon title as well
-                sermon_title_translated = data.get("sermon_title")
+                sermon_title_translated = data.get("translated_sermon_title")
                 if sermon_title_translated:
                     logging.info(f"Translated sermon title:\n{sermon_title_translated}")
                 else:
-                    logging.warning("⚠️ Translated sermon title not found in the response.")
+                    logging.warning("Translated sermon title not found in the response.")
                 break
             elif data['status'] == 'failed':
-                logging.error("❌ Translation failed!")
+                logging.error("Translation failed.")
                 break
         else:
             try:
                 error_data = response.json()
             except Exception:
                 error_data = response.text
-            logging.error(f"❌ Failed to fetch status: {error_data}")
+            logging.error(f"Failed to fetch status: {error_data}")
             break
 
 def main():
@@ -71,7 +68,7 @@ def main():
     sermon_title = "Sermonette 3/22: Matthew 20:17-28"
     test_text = """This is a test passage with approximately 500 words. It contains a variety of sentence structures"""
     
-    logging.info("🚀 Starting translation API test...")
+    logging.info("Starting translation API test...")
     submit_translation_job(sermon_guid, test_text, sermon_title)
     check_translation_status(sermon_guid)
 

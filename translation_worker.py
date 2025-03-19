@@ -41,14 +41,14 @@ def process_translation_jobs():
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # Fetch pending translation requests (now including sermon_title)
+            # Fetch pending translation requests
             cursor.execute(
                 "SELECT id, transcription, sermon_title, current_language, convert_to_language, region FROM translations WHERE status = 'pending' LIMIT 5"
             )
             jobs = cursor.fetchall()
 
             if not jobs:
-                logging.info("⏳ No pending translations. Waiting...")
+                logging.info("No pending translations. Waiting...")
             
             for job in jobs:
                 job_id = job['id']
@@ -58,7 +58,7 @@ def process_translation_jobs():
                 target_language = job['convert_to_language']
                 region = job['region'] if job['region'] else "US"  # Default to US if region is not set
                 
-                logging.info(f"🌍 Processing translation job {job_id}: {source_language} → {target_language} (Region: {region})...")
+                logging.info(f"Processing translation job {job_id}: {source_language} → {target_language} (Region: {region})...")
                 
                 try:
                     # Translate both transcription and sermon title
@@ -73,10 +73,9 @@ def process_translation_jobs():
                     )
                     conn.commit()
                     
-                    # Log both translations so you can verify the output
-                    logging.info(f"✅ Translation job {job_id} completed successfully.")
+                    logging.info(f"Translation job {job_id} completed successfully.")
                 except Exception as e:
-                    logging.error(f"❌ Translation job {job_id} failed: {e}")
+                    logging.error(f"Translation job {job_id} failed: {e}")
                     cursor.execute(
                         "UPDATE translations SET status = 'failed' WHERE id = ?",
                         (job_id,)
@@ -86,9 +85,9 @@ def process_translation_jobs():
             conn.close()
             time.sleep(TRANSLATION_POLL_INTERVAL)
         except Exception as e:
-            logging.error(f"🚨 Error in translation worker: {e}")
+            logging.error(f"Error in translation worker: {e}")
             time.sleep(TRANSLATION_POLL_INTERVAL)
 
 if __name__ == "__main__":
-    logging.info("🔥 Starting translation worker...")
+    logging.info("Starting translation worker...")
     process_translation_jobs()

@@ -4,6 +4,7 @@ import uuid
 import os
 import logging
 import threading
+import time
 from datetime import datetime, timedelta
 from translation_worker import process_translation_jobs
 
@@ -22,7 +23,6 @@ def get_db():
         db.row_factory = sqlite3.Row
     return db
 
-# added sermon_title
 def init_db():
     """Initializes the database with necessary tables."""
     with app.app_context():
@@ -45,26 +45,28 @@ def init_db():
             )
         ''')
         db.commit()
-    logging.info("✅ Database initialized successfully.")
+    logging.info("Database initialized successfully.")
 
 def purge_old_completed_jobs():
-    """Deletes translation jobs that were completed more than 24 hours ago."""
+    """Deletes translation jobs that were completed more than 4 hours ago."""
     try:
         db = get_db()
         cursor = db.cursor()
-        threshold_time = (datetime.utcnow() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+        threshold_time = (datetime.utcnow() - timedelta(hours=4)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("DELETE FROM translations WHERE status = 'completed' AND finished_at <= ?", (threshold_time,))
+        deleted_count = cursor.rowcount
         db.commit()
-        logging.info("🗑️ Purged completed translation jobs older than 24 hours.")
+        if deleted_count > 0:
+            logging.info(f"Purged {deleted_count} completed translation jobs older than 4 hours.")
     except Exception as e:
-        logging.error(f"❌ Error while purging old completed jobs: {e}")
+        logging.error(f"Error while purging old completed jobs: {e}")
 
 @app.before_request
 def require_api_key():
     """Middleware to enforce API Key authentication."""
     key = request.headers.get('X-API-KEY')
     if key != API_KEY:
-        logging.warning("🚨 Unauthorized access attempt.")
+        logging.warning("Unauthorized access attempt.")
         return jsonify({"error": "Unauthorized"}), 401
 
 @app.teardown_appcontext
@@ -73,7 +75,6 @@ def close_connection(exception):
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
-    logging.debug("🔌 Database connection closed.")
 
 @app.route('/translate', methods=['POST'])
 def request_translation():
@@ -89,7 +90,7 @@ def request_translation():
 
         # Check if all required fields are provided
         if not all([sermon_guid, sermon_title, transcription, current_language, convert_to_language, region]):
-            logging.error("⚠️ Missing required fields in request.")
+            logging.error("Missing required fields in request.")
             return jsonify({"error": "Missing required fields"}), 400
 
         db = get_db()
@@ -99,7 +100,7 @@ def request_translation():
         cursor.execute('SELECT id FROM translations WHERE sermon_guid = ?', (sermon_guid,))
         existing = cursor.fetchone()
         if existing:
-            logging.warning(f"🚫 Duplicate sermon GUID detected: {sermon_guid}")
+            logging.warning(f"Duplicate sermon GUID detected: {sermon_guid}")
             return jsonify({"error": "A translation request for this sermon already exists."}), 409
 
         cursor.execute('''
@@ -107,22 +108,13 @@ def request_translation():
             VALUES (?, ?, ?, ?, ?, ?, 'pending')
         ''', (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region))
         db.commit()
-        logging.info(f"📥 Translation request submitted: {sermon_guid}")
+        logging.info(f"Translation request submitted: {sermon_guid}")
         return jsonify({"message": "Translation request submitted successfully"}), 201
 
     except Exception as e:
-        logging.exception("❌ Error occurred while processing translation request.")
+        logging.exception(f"Error occurred while processing translation request: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/purge', methods=['POST'])
-def purge_jobs():
-    """Manually trigger purge of completed jobs older than 24 hours."""
-    try:
-        purge_old_completed_jobs()
-        return jsonify({"message": "Old completed jobs purged successfully."}), 200
-    except Exception as e:
-        logging.exception("❌ Error occurred while purging jobs.")
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/')
 def index():
@@ -139,13 +131,13 @@ def get_translation_status(sermon_guid):
         row = cursor.fetchone()
 
         if row is None:
-            logging.warning(f"🔍 Translation status request: Sermon GUID not found - {sermon_guid}")
+            logging.warning(f"Translation status request: Sermon GUID not found - {sermon_guid}")
             return jsonify({"error": "Translation job not found."}), 404
 
         translation_data = dict(row)
-        logging.info(f"📊 Translation status retrieved for Sermon GUID: {sermon_guid}")
+        logging.info(f"Translation status retrieved for Sermon GUID: {sermon_guid}")
 
-        # Only return the desired fields: sermon_guid, translated_sermon_title, translated_text, created, and finished_at.
+        # Only return the desired fields
         response_data = {
             "sermon_guid": translation_data.get("sermon_guid"),
             "translated_sermon_title": translation_data.get("translated_sermon_title"),
@@ -159,21 +151,41 @@ def get_translation_status(sermon_guid):
         return jsonify(response_data), 200
 
     except Exception as e:
-        logging.exception("❌ Error occurred while fetching translation status.")
+        logging.exception(f"Error occurred while fetching translation status: {e}")
         return jsonify({"error": str(e)}), 500
 
 
+def schedule_purge_task():
+    """Periodically purges old completed translation jobs."""
+    PURGE_INTERVAL = 15 * 60  # Run purge every 15 minutes
+    
+    while True:
+        time.sleep(PURGE_INTERVAL)
+        with app.app_context():
+            try:
+                purge_old_completed_jobs()
+            except Exception as e:
+                logging.error(f"Scheduled purge task failed: {e}")
+
 if __name__ == "__main__":
-    logging.info("🔥 Starting Translation API Server...")
+    logging.info("Starting Translation API Server...")
     init_db()
 
-    with app.app_context():  # 🔥 Ensure Flask app context
+    # Run initial purge
+    with app.app_context():
         purge_old_completed_jobs()
         
-    logging.info("🔥 Starting translation worker thread...")
+    # Start translation worker thread
+    logging.info("Starting translation worker thread...")
     worker_thread = threading.Thread(target=process_translation_jobs, daemon=True)
     worker_thread.start()
-    logging.info("✅ Translation worker thread started successfully.")
+    logging.info("Translation worker thread started successfully.")
     
-    logging.info("✅ Translation API Server started successfully.")
+    # Start automatic purge thread
+    logging.info("Starting automatic purge thread...")
+    purge_thread = threading.Thread(target=schedule_purge_task, daemon=True)
+    purge_thread.start()
+    logging.info("Automatic purge thread started successfully.")
+    
+    logging.info("Translation API Server started successfully.")
     app.run(host='0.0.0.0', port=5090, debug=True, use_reloader=False)
