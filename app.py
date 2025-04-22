@@ -1,63 +1,27 @@
 from flask import Flask, request, jsonify, g
-import sqlite3
-import uuid
 import os
 import logging
 import threading
 import time
 from datetime import datetime, timedelta
 from translation_worker import process_translation_jobs
+from database import init_db, get_db, execute_with_params
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = Flask(__name__)
-DATABASE = 'translations.db'
 API_KEY = os.getenv("TRANSLATION_API_KEY", "your_default_api_key")  # Use env variable for security
-
-def get_db():
-    """Connects to the database."""
-    db = getattr(g, '_database', None)
-    if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row
-    return db
-
-def init_db():
-    """Initializes the database with necessary tables."""
-    with app.app_context():
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS translations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sermon_guid TEXT NOT NULL UNIQUE,
-                sermon_title TEXT NOT NULL,
-                transcription TEXT NOT NULL,
-                current_language TEXT NOT NULL,
-                convert_to_language TEXT NOT NULL,
-                region TEXT NOT NULL,
-                translated_text TEXT DEFAULT NULL,
-                translated_sermon_title TEXT DEFAULT NULL,
-                status TEXT DEFAULT 'pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                finished_at TIMESTAMP DEFAULT NULL
-            )
-        ''')
-        db.commit()
-    logging.info("Database initialized successfully.")
 
 def purge_old_completed_jobs():
     """Deletes translation jobs that were completed more than 4 hours ago."""
     try:
-        db = get_db()
-        cursor = db.cursor()
         threshold_time = (datetime.utcnow() - timedelta(hours=4)).strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute("DELETE FROM translations WHERE status = 'completed' AND finished_at <= ?", (threshold_time,))
-        deleted_count = cursor.rowcount
-        db.commit()
-        if deleted_count > 0:
-            logging.info(f"Purged {deleted_count} completed translation jobs older than 4 hours.")
+        execute_with_params(
+            "DELETE FROM translations WHERE status = 'completed' AND finished_at <= ?",
+            (threshold_time,)
+        )
+        logging.info("Successfully purged old completed jobs.")
     except Exception as e:
         logging.error(f"Error while purging old completed jobs: {e}")
 
@@ -70,8 +34,8 @@ def require_api_key():
         return jsonify({"error": "Unauthorized"}), 401
 
 @app.teardown_appcontext
-def close_connection(exception):
-    """Closes database connection at the end of request."""
+def cleanup(exception=None):
+    """Cleanup resources at the end of request."""
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
@@ -93,21 +57,24 @@ def request_translation():
             logging.error("Missing required fields in request.")
             return jsonify({"error": "Missing required fields"}), 400
 
-        db = get_db()
-        cursor = db.cursor()
-
         # Check if sermon GUID already exists
-        cursor.execute('SELECT id FROM translations WHERE sermon_guid = ?', (sermon_guid,))
-        existing = cursor.fetchone()
-        if existing:
+        result = execute_with_params(
+            'SELECT id FROM translations WHERE sermon_guid = ?',
+            (sermon_guid,)
+        )
+        if result:
             logging.warning(f"Duplicate sermon GUID detected: {sermon_guid}")
             return jsonify({"error": "A translation request for this sermon already exists."}), 409
 
-        cursor.execute('''
-            INSERT INTO translations (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region, status)
+        # Insert new translation request
+        execute_with_params(
+            '''
+            INSERT INTO translations 
+            (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region, status)
             VALUES (?, ?, ?, ?, ?, ?, 'pending')
-        ''', (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region))
-        db.commit()
+            ''',
+            (sermon_guid, sermon_title, transcription, current_language, convert_to_language, region)
+        )
         logging.info(f"Translation request submitted: {sermon_guid}")
         return jsonify({"message": "Translation request submitted successfully"}), 201
 
@@ -125,16 +92,16 @@ def index():
 def get_translation_status(sermon_guid):
     """Fetches the status of a translation job by sermon GUID, returning only the translated fields and timestamps."""
     try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("SELECT * FROM translations WHERE sermon_guid = ?", (sermon_guid,))
-        row = cursor.fetchone()
+        result = execute_with_params(
+            "SELECT * FROM translations WHERE sermon_guid = ?",
+            (sermon_guid,)
+        )
 
-        if row is None:
+        if not result:
             logging.warning(f"Translation status request: Sermon GUID not found - {sermon_guid}")
             return jsonify({"error": "Translation job not found."}), 404
 
-        translation_data = dict(row)
+        translation_data = result[0]
         logging.info(f"Translation status retrieved for Sermon GUID: {sermon_guid}")
 
         # Only return the desired fields

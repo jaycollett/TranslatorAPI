@@ -10,6 +10,9 @@ COPY . /app
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Run tests (fail the build if any test fails)
+RUN pytest --maxfail=1 --disable-warnings
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV TRANSLATION_API_KEY="e95db18b-6bd6-411e-b95c-b3699b12cad3"
