@@ -16,7 +16,7 @@ API_KEY = os.getenv("TRANSLATION_API_KEY", "your_default_api_key")  # Use env va
 def purge_old_completed_jobs():
     """Deletes translation jobs that were completed more than 4 hours ago."""
     try:
-        threshold_time = (datetime.utcnow() - timedelta(hours=4)).strftime('%Y-%m-%d %H:%M:%S')
+        threshold_time = (datetime.utcnow() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
         execute_with_params(
             "DELETE FROM translations WHERE status = 'completed' AND finished_at <= ?",
             (threshold_time,)

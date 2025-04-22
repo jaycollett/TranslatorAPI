@@ -45,26 +45,10 @@ def translate_text(text, source_language, target_language, region):
     )
     return response.translations[0].translated_text if response.translations else ""
 
-def purge_old_completed_jobs():
-    """Deletes translation jobs that were completed more than 24 hours ago."""
-    from datetime import datetime, timedelta
-    threshold_time = (datetime.utcnow() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-    try:
-        result = execute_with_params(
-            "DELETE FROM translations WHERE status = 'completed' AND finished_at <= ?",
-            (threshold_time,)
-        )
-        logging.info("Purged old completed translation jobs over 24 hours old.")
-    except Exception as e:
-        logging.error(f"Error purging old completed jobs: {e}")
-
 def process_translation_jobs():
     """Checks for pending translations and processes them."""
     while True:
         try:
-            # Purge old completed jobs
-            purge_old_completed_jobs()
-            
             # Fetch pending translation requests
             jobs = execute_with_params(
                 "SELECT id, transcription, sermon_title, current_language, convert_to_language, region "
