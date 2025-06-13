@@ -29,21 +29,67 @@ def get_project_id():
 
 def translate_text(text, source_language, target_language, region):
     """Translates text using Google Cloud Translate v3 API."""
+    MAX_CHARS = 30000  # Leave some buffer below the 30,720 limit
+    
+    if isinstance(text, bytes):
+        text = text.decode("utf-8")
+    
+    # Initialize client and project info once
     client = translate.TranslationServiceClient()
     project_id = get_project_id()
     parent = f"projects/{project_id}/locations/{LOCATION}"
-    if isinstance(text, bytes):
-        text = text.decode("utf-8")
-    response = client.translate_text(
-        request={
-            "parent": parent,
-            "contents": [text],
-            "mime_type": "text/plain",
-            "source_language_code": source_language,
-            "target_language_code": target_language,
-        }
-    )
-    return response.translations[0].translated_text if response.translations else ""
+    
+    # If text is within limit, translate directly
+    if len(text) <= MAX_CHARS:
+        response = client.translate_text(
+            request={
+                "parent": parent,
+                "contents": [text],
+                "mime_type": "text/plain",
+                "source_language_code": source_language,
+                "target_language_code": target_language,
+            }
+        )
+        return response.translations[0].translated_text if response.translations else ""
+    
+    # Split text into chunks for large texts
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + MAX_CHARS
+        if end >= len(text):
+            chunks.append(text[start:])
+            break
+        
+        # Try to break at sentence boundary to preserve context
+        break_point = text.rfind('.', start, end)
+        if break_point == -1 or break_point <= start:
+            break_point = text.rfind(' ', start, end)
+        if break_point == -1 or break_point <= start:
+            break_point = end
+            
+        chunks.append(text[start:break_point])
+        start = break_point + 1 if break_point < len(text) else break_point
+    
+    # Translate each chunk
+    translated_chunks = []
+    for chunk in chunks:
+        # Skip empty chunks
+        if not chunk.strip():
+            continue
+            
+        response = client.translate_text(
+            request={
+                "parent": parent,
+                "contents": [chunk],
+                "mime_type": "text/plain",
+                "source_language_code": source_language,
+                "target_language_code": target_language,
+            }
+        )
+        translated_chunks.append(response.translations[0].translated_text if response.translations else "")
+    
+    return "".join(translated_chunks)
 
 def process_translation_jobs():
     """Checks for pending translations and processes them."""
