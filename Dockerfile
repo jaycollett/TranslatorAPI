@@ -8,7 +8,7 @@
 # Python raised 3.9 -> 3.13; 3.9 went end-of-life in October 2025.
 
 # ---- Stage 1: build the virtualenv and gate on the tests ----
-FROM python:3.13-alpine AS builder
+FROM python:3.14-alpine AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -32,7 +32,7 @@ COPY . .
 RUN pytest --maxfail=1 --disable-warnings
 
 # ---- Stage 2: runtime ----
-FROM python:3.13-alpine
+FROM python:3.14-alpine
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
